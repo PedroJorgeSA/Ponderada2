@@ -32,6 +32,14 @@ Este projeto se baseia intensamente em abstrações modulares do D3.js v7, indo 
 - **Reconhecimento Complexo de Gestos:**
   Utiliza-se o armazenamento residual contínuo dos arcos radianos traçados no "drag" temporal para definir atitudes de sistema (Como o evento de Colapso e Dispersão), demonstrando que o D3 serve perfeitamente não apenas para traçar coordenadas finais, mas interceptar as micro-ações vetoriais de arrasto com funções de estado global.
 
+## Desafios Interativos e Exploração
+
+Para explorar o potencial lúdico do simulador, propomos alguns testes práticos e divertidos:
+
+- **O Desafio dos 100 Planetas:** Clique no Sol repetidamente até esgotar o limite estrito suportado: 100 corpos celestes. Note como os planetas recém-chegados não escapam para o infinito; eles se fundem e convergem matematicamente nos mesmos anéis iniciais, criando anéis densos com múltiplas cores geradas pela interpolação espectral.
+- **Realocação Orbital (Snapping):** Selecione um planeta qualquer e arraste-o livremente pela extensão do vazio. Pode parecer difícil mantê-lo instável, pois a física interna mapeará a geometria exata instantaneamente e fará um "snap" automático forçando o planeta a assumir apenas cinturões orbitais coerentes e seguros, ignorando zonas inválidas.
+- **Evocando a Dispersão e o Caos:** Arraste o Sol subitamente com toda sua força para as bordas distantes, empurrando o ecossistema para fora da tela. O motor entenderá isso como uma quebra sistêmica e ejetará cada planeta em velocidades drásticas para os confins do universo vazio de forma irrevogável.
+
 ## Requisitos Técnicos Aplicados
 
 - SVG Integrado a HTML5, fazendo uso avançado das flags nativas `feGaussianBlur` para emular difração de luz realísticamente.
