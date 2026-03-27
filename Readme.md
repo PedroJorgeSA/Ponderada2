@@ -1,17 +1,23 @@
 # Sistema Solar Interativo (Galeria de CC)
 
-Uma representação algorítmica e lúdica de mecânicas celestes desenvolvida puramente com a biblioteca corporativa D3.js. Este projeto explora a interseção entre simulação de física em Canvas/SVG, design paramétrico e interação fluida em tempo real para o usuário.
+<p align="center">
+  <img src="previewSistemSolar.png" alt="Preview do Sistema Solar" width="100%">
+</p>
+
+Uma representação algorítmica e lúdica de mecânicas celestes desenvolvida puramente com a biblioteca D3.js. vista em aula Este projeto explora a interseção entre simulação de física em SVG, design paramétrico e interação fluida em tempo real para o usuário.
 
 ## Submissão: Galeria de CC
 
 **Nome da obra:** Colapso Gravitacional  
-**Instrução de interação:** Clique no Sol ao centro para iterativamente gerar novos planetas. Arraste os planetas livremente para reposicioná-los em órbitas magnéticas adjacentes. Para causar um evento cataclísmico, arraste o Sol em um movimento circular em sua volta por duas voltas completas para engatilhar um colapso gravitacional.
+**Instrução de interação:** Clique no Sol ao centro para iterativamente gerar novos planetas. 
+Arraste os planetas livremente para reposicioná-los em órbitas magnéticas adjacentes. 
+Para causar um evento cataclísmico, arraste o Sol em um movimento circular em sua volta por duas voltas completas para engatilhar um colapso gravitacional.
 
 ---
 
 ## Como Executar e Explorar
 
-O ecossistema é processado integralmente no lado do cliente (Client-side), prescindindo de processos de compilação ou bundlers.
+O ecossistema é processado integralmente no lado do cliente, prescindindo de processos de compilação ou bundlers.
 
 1. Navegue até o diretório do projeto e abra o arquivo diretriz (`sistema_solar.html`) utilizando um navegador atualizado.
 2. Como alternativa de desenvolvimento, inicie uma instância como o Live Server do VS Code ou um host local pelo terminal Python utilizando o comando `python -m http.server`.
@@ -36,9 +42,9 @@ Este projeto se baseia intensamente em abstrações modulares do D3.js v7, indo 
 
 Para explorar o potencial lúdico do simulador, propomos alguns testes práticos e divertidos:
 
-- **O Desafio dos 100 Planetas:** Clique no Sol repetidamente até esgotar o limite estrito suportado: 100 corpos celestes. Note como os planetas recém-chegados não escapam para o infinito; eles se fundem e convergem matematicamente nos mesmos anéis iniciais, criando anéis densos com múltiplas cores geradas pela interpolação espectral.
-- **Realocação Orbital (Snapping):** Selecione um planeta qualquer e arraste-o livremente pela extensão do vazio. Pode parecer difícil mantê-lo instável, pois a física interna mapeará a geometria exata instantaneamente e fará um "snap" automático forçando o planeta a assumir apenas cinturões orbitais coerentes e seguros, ignorando zonas inválidas.
-- **Evocando a Dispersão e o Caos:** Arraste o Sol subitamente com toda sua força para as bordas distantes, empurrando o ecossistema para fora da tela. O motor entenderá isso como uma quebra sistêmica e ejetará cada planeta em velocidades drásticas para os confins do universo vazio de forma irrevogável.
+- **O Desafio dos 100 Planetas:** Clique no Sol repetidamente até esgotar o limite estrito suportado: 100 corpos celestes. 
+- **Realocação Orbital (Snapping):** Selecione um planeta qualquer e arraste-o livremente pela extensão do vazio. 
+- **Evocando a Dispersão e o Caos:** Arraste o Sol subitamente com toda sua força para as bordas distantes, empurrando o ecossistema para fora da tela. 
 
 ## Requisitos Técnicos Aplicados
 
