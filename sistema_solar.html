@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Solar System Simulation</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; font-family: 'Orbitron', sans-serif; }
+    svg { width: 100vw; height: 100vh; display: block; }
+
+    /* HUD overlay */
+    #hud {
+      position: fixed;
+      top: 20px; left: 50%;
+      transform: translateX(-50%);
+      color: #7ef7ff;
+      font-size: 13px;
+      letter-spacing: 2px;
+      text-shadow: 0 0 8px #7ef7ff88;
+      pointer-events: none;
+      text-align: center;
+    }
+    #hud .counter {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 0 0 14px #7ef7ffcc;
+    }
+    #hud .label { margin-top: 4px; font-size: 11px; opacity: 0.7; }
+
+    /* hint bar */
+    #hint {
+      position: fixed;
+      bottom: 14px; left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 580px;
+      background: rgba(0, 180, 255, 0.06);
+      border: 1px solid rgba(0,180,255,0.15);
+      border-radius: 12px;
+      padding: 8px 14px;
+      font-size: 12px;
+      color: rgba(200,230,255,0.8);
+      pointer-events: none;
+      text-align: center;
+      line-height: 1.6;
+    }
+    @media (max-width: 768px) {
+      #hint { font-size: 10px; }
+    }
+
+    /* orbit rings */
+    .orbit-ring {
+      fill: none;
+      stroke: rgba(255,255,255,0.06);
+      stroke-width: 1;
+    }
+  </style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="counter" id="planet-count">0</div>
+  <div class="label">PLANETAS EM ÓRBITA</div>
+</div>
+
+<div id="hint">
+  ☀️ <b>Sol</b>: Click p/ Add &nbsp;|&nbsp;
+  🪐 <b>Planeta</b>: Arraste p/ Órbita &nbsp;|&nbsp;
+  🖐 <b>Sol</b>: Arraste p/ Mover &nbsp;|&nbsp;
+  🔄 <b>Gire 2×</b>: Colapso &nbsp;|&nbsp;
+  🔍 <b>Scroll</b>: Zoom
+</div>
+
+<svg id="svg">
+  <defs>
+    <!-- Sun glow filter -->
+    <filter id="sun-glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="14" result="blur1"/>
+      <feGaussianBlur stdDeviation="28" result="blur2"/>
+      <feMerge>
+        <feMergeNode in="blur2"/>
+        <feMergeNode in="blur1"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Planet glow filter -->
+    <filter id="planet-glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Radial background gradient -->
+    <radialGradient id="space-bg" cx="50%" cy="50%" r="75%">
+      <stop offset="0%"   stop-color="#0a0a1a"/>
+      <stop offset="60%"  stop-color="#04040e"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Space background (fixed, outside zoom) -->
+  <rect id="bg-rect" width="100%" height="100%" fill="url(#space-bg)"/>
+  <g id="stars-layer"></g>   <!-- static stars -->
+
+  <!-- Everything else in zoomable stage -->
+  <g id="stage">
+    <g id="orbit-rings-layer"></g>   <!-- orbit path rings -->
+    <g id="planets-layer"></g>       <!-- orbiting planets -->
+    <g id="sun-layer"></g>           <!-- sun circle -->
+  </g>
+</svg>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+// ═══════════════════════════════════════════════════
+//  CONSTANTS & CONFIG
+// ═══════════════════════════════════════════════════
+const W = window.innerWidth;
+const H = window.innerHeight;
+
+const SUN_R       = 52;          // initial sun radius
+const MIN_SUN_R   = 22;          // sun won't shrink below this
+const MAX_PLANETS = 100;         // planet limit
+const GOLDEN_ANG  = 137.508 * Math.PI / 180;
+const FIRST_ORBIT = 100;         // orbit radius of 1st planet from sun center
+const ORBIT_GAP   = 46;          // additional gap per orbit ring
+const PLANET_R    = 14;          // base planet radius (increased per ring slightly)
+const SWEEPS      = 2;           // rotations to trigger collapse
+
+// Color scale for planets (index → hue)
+const planetColor = t => d3.interpolateRainbow(t);
+
+// ═══════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════
+let anchor = { x: W / 2, y: H / 2 };   // sun center position (stage coords)
+let sunR   = SUN_R;
+
+// Planet data: { id, r, orbitR, angle, speed, color }
+let planets = [];
+let nextId  = 0;
+
+let rafId    = null;
+let lastTime = null;
+let totalCreated = 0;
+
+// ═══════════════════════════════════════════════════
+//  SVG LAYERS
+// ═══════════════════════════════════════════════════
+const svg          = d3.select('#svg');
+const starsLayer   = svg.select('#stars-layer');
+const stage        = svg.select('#stage');
+const ringsLayer   = stage.select('#orbit-rings-layer');
+const planetsLayer = stage.select('#planets-layer');
+const sunLayer     = stage.select('#sun-layer');
+
+// ═══════════════════════════════════════════════════
+//  STARS (random, fixed in screen space)
+// ═══════════════════════════════════════════════════
+const NUM_STARS = 260;
+const starsData = d3.range(NUM_STARS).map(() => ({
+  x: Math.random() * W,
+  y: Math.random() * H,
+  r: Math.random() < 0.15 ? Math.random() * 1.6 + 0.8 : Math.random() * 0.8 + 0.2,
+  opacity: Math.random() * 0.5 + 0.3,
+}));
+
+starsLayer.selectAll('circle.star')
+  .data(starsData)
+  .enter().append('circle')
+  .attr('class', 'star')
+  .attr('cx', d => d.x)
+  .attr('cy', d => d.y)
+  .attr('r',  d => d.r)
+  .attr('fill', '#ffffff')
+  .attr('opacity', d => d.opacity);
+
+// Subtle star twinkle (a few stars)
+(function twinkle() {
+  starsLayer.selectAll('circle.star')
+    .filter(() => Math.random() < 0.04)
+    .transition()
+    .duration(800 + Math.random() * 1200)
+    .attr('opacity', Math.random() * 0.4 + 0.1)
+    .transition()
+    .duration(800 + Math.random() * 1200)
+    .attr('opacity', Math.random() * 0.5 + 0.4);
+  setTimeout(twinkle, 1500);
+})();
+
+// ═══════════════════════════════════════════════════
+//  ZOOM
+// ═══════════════════════════════════════════════════
+let T = d3.zoomIdentity;
+const zoomer = d3.zoom()
+  .scaleExtent([0.2, 6])
+  .filter(e => {
+    // Don't intercept drag on sun or planets
+    const cls = e.target.classList;
+    return !cls.contains('sun') && !cls.contains('planet-bub');
+  })
+  .on('zoom', e => { T = e.transform; stage.attr('transform', e.transform); });
+svg.call(zoomer);
+
+// ═══════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════
+function stageXY(ev) {
+  const p = d3.pointer(ev.sourceEvent, svg.node());
+  return { x: (p[0] - T.x) / T.k, y: (p[1] - T.y) / T.k };
+}
+function updateHUD() {
+  d3.select('#planet-count').text(planets.length);
+}
+
+// ═══════════════════════════════════════════════════
+//  SUN
+// ═══════════════════════════════════════════════════
+// Sun: layered circles for the glow effect
+const sunGlowOuter = sunLayer.append('circle').attr('class', 'sun-glow-outer');
+const sunGlowInner = sunLayer.append('circle').attr('class', 'sun-glow-inner');
+const sunCircle    = sunLayer.append('circle').attr('class', 'sun');
+
+function renderSun(animIn = false) {
+  // Outer glow ring
+  sunGlowOuter
+    .attr('cx', anchor.x).attr('cy', anchor.y)
+    .attr('fill', 'rgba(255, 160, 0, 0.08)')
+    .attr('r', sunR * 2.8);
+
+  sunGlowInner
+    .attr('cx', anchor.x).attr('cy', anchor.y)
+    .attr('fill', 'rgba(255, 200, 50, 0.15)')
+    .attr('r', sunR * 1.6);
+
+  // Core
+  const core = sunCircle
+    .attr('cx', anchor.x)
+    .attr('cy', anchor.y)
+    .attr('filter', 'url(#sun-glow)')
+    .attr('cursor', 'pointer')
+    .attr('stroke', 'rgba(255,220,80,0.6)')
+    .attr('stroke-width', 2)
+    .style('user-select', 'none');
+
+  if (animIn) {
+    core.attr('r', 0).attr('fill', '#ffb800')
+      .transition().duration(600)
+      .ease(d3.easeElasticOut.amplitude(1.1).period(0.4))
+      .attr('r', sunR);
+  } else {
+    core.attr('fill', '#ffc200')
+      .transition().duration(200)
+      .attr('r', sunR);
+  }
+}
+
+// Pulsing animation for sun
+(function pulse() {
+  sunGlowOuter
+    .transition().duration(1800).ease(d3.easeSinInOut)
+    .attr('r', sunR * 3.1)
+    .attr('fill', 'rgba(255,160,0,0.12)')
+    .transition().duration(1800).ease(d3.easeSinInOut)
+    .attr('r', sunR * 2.6)
+    .attr('fill', 'rgba(255,160,0,0.06)')
+    .on('end', pulse);
+})();
+
+// Click sun → add planet
+sunCircle.on('click', function(event) {
+  event.stopPropagation();
+  if (planets.length >= MAX_PLANETS) return;
+
+  const n         = planets.length;
+  const ringIndex = n % 8; // Cycle through 8 innermost orbits
+  const orbitR    = FIRST_ORBIT + ringIndex * ORBIT_GAP;
+
+  // Kepler-like: speed ∝ 1 / sqrt(orbitR)
+  const speed  = 0.0012 / Math.sqrt(orbitR / 80);
+  const angle0 = n * GOLDEN_ANG;
+  const r      = PLANET_R + Math.random() * 8 - 4;  // slight size variation
+  const color  = planetColor((n + 0.5) / MAX_PLANETS);
+
+  planets.push({ id: nextId++, r, orbitR, angle: angle0, speed, color });
+  totalCreated++;
+
+  startAnim();
+  renderOrbits();
+  updateHUD();
+});
+
+// Drag sun → move system
+(function setupSunDrag() {
+  let startAnchor = null;
+  let lastAngle   = null;
+  let sweep       = 0;
+
+  sunCircle.call(
+    d3.drag()
+      .on('start', function(e) {
+        e.sourceEvent.stopPropagation();
+        d3.select(this).attr('cursor', 'grabbing');
+        startAnchor = { ...anchor };
+        lastAngle = null; sweep = 0;
+      })
+      .on('drag', function(e) {
+        const { x, y } = stageXY(e);
+        anchor.x = x; anchor.y = y;
+
+        // Collapse detection (circular sweep)
+        const ang = Math.atan2(y - startAnchor.y, x - startAnchor.x);
+        if (lastAngle !== null) {
+          let d = ang - lastAngle;
+          if (d >  Math.PI) d -= 2 * Math.PI;
+          if (d < -Math.PI) d += 2 * Math.PI;
+          sweep += Math.abs(d);
+          if (sweep >= SWEEPS * 2 * Math.PI) {
+            gravitationalCollapse();
+            sweep = 0; lastAngle = null;
+            return;
+          }
+        }
+        lastAngle = ang;
+
+        renderSun();
+        renderOrbits();
+        renderPlanets();
+      })
+      .on('end', function(e) {
+        d3.select(this).attr('cursor', 'pointer');
+        // If dragged very far from screen center, disperse
+        const { x, y } = stageXY(e);
+        const dist = Math.hypot(x - W / 2, y - H / 2);
+        if (dist > Math.min(W, H) * 0.6) systemDisperse();
+      })
+  );
+})();
+
+// ═══════════════════════════════════════════════════
+//  ORBIT RINGS
+// ═══════════════════════════════════════════════════
+function renderOrbits() {
+  const sel = ringsLayer.selectAll('circle.orbit-ring')
+    .data(planets, d => d.id);
+
+  sel.enter().append('circle')
+    .attr('class', 'orbit-ring')
+    .attr('cx', anchor.x)
+    .attr('cy', anchor.y)
+    .attr('r', d => d.orbitR)
+    .attr('opacity', 0)
+    .transition().duration(400)
+    .attr('opacity', 1);
+
+  sel
+    .attr('cx', anchor.x)
+    .attr('cy', anchor.y)
+    .attr('r', d => d.orbitR);
+
+  sel.exit()
+    .transition().duration(300)
+    .attr('opacity', 0)
+    .remove();
+}
+
+// ═══════════════════════════════════════════════════
+//  PLANETS (D3 data join, repositioned each frame)
+// ═══════════════════════════════════════════════════
+// Preview ring shown while dragging a planet
+const dragPreviewRing = ringsLayer.append('circle')
+  .attr('class', 'orbit-ring')
+  .attr('r', 0)
+  .attr('stroke', 'rgba(255,255,255,0.25)')
+  .attr('stroke-dasharray', '6 4')
+  .attr('opacity', 0);
+
+function buildPlanetDrag() {
+  return d3.drag()
+    .on('start', function(e, d) {
+      e.sourceEvent.stopPropagation();
+      d._dragging = true;
+      d3.select(this).attr('cursor', 'grabbing').raise();
+    })
+    .on('drag', function(e, d) {
+      const { x: mx, y: my } = stageXY(e);
+      // Move circle visually to mouse
+      d3.select(this).attr('cx', mx).attr('cy', my);
+      // Show preview orbit ring with snapping to defined orbits
+      const rawDist = Math.hypot(mx - anchor.x, my - anchor.y);
+      let k = Math.round((rawDist - FIRST_ORBIT) / ORBIT_GAP);
+      if (k < 0) k = 0;
+      const snapDist = FIRST_ORBIT + k * ORBIT_GAP;
+      
+      dragPreviewRing
+        .attr('cx', anchor.x).attr('cy', anchor.y)
+        .attr('r', snapDist)
+        .attr('opacity', 1);
+    })
+    .on('end', function(e, d) {
+      d._dragging = false;
+      d3.select(this).attr('cursor', 'grab');
+      dragPreviewRing.attr('opacity', 0).attr('r', 0);
+
+      const { x: mx, y: my } = stageXY(e);
+      const rawDist = Math.hypot(mx - anchor.x, my - anchor.y);
+      
+      // Snap to nearest discrete orbit layer
+      let k = Math.round((rawDist - FIRST_ORBIT) / ORBIT_GAP);
+      if (k < 0) k = 0; // limit closest orbit
+      const newOrbitR = FIRST_ORBIT + k * ORBIT_GAP;
+      
+      d.orbitR  = newOrbitR;
+      d.angle   = Math.atan2(my - anchor.y, mx - anchor.x);  // keep drop angle
+      d.speed   = 0.0012 / Math.sqrt(newOrbitR / 80);        // recalc speed with slower pace
+      renderOrbits();
+    });
+}
+
+function renderPlanets() {
+  const sel = planetsLayer.selectAll('circle.planet-bub')
+    .data(planets, d => d.id);
+
+  // ENTER
+  const enter = sel.enter().append('circle')
+    .attr('class', 'planet-bub')
+    .attr('cx', d => anchor.x + d.orbitR)
+    .attr('cy', d => anchor.y)
+    .attr('r', 0)
+    .attr('fill', d => d.color)
+    .attr('filter', 'url(#planet-glow)')
+    .attr('stroke', d => d3.color(d.color).brighter(0.8))
+    .attr('stroke-width', 1.5)
+    .attr('cursor', 'grab')
+    .style('pointer-events', 'all')
+    .call(buildPlanetDrag());
+
+  enter.transition()
+    .duration(600)
+    .ease(d3.easeElasticOut.amplitude(1.1).period(0.4))
+    .attr('r', d => d.r);
+
+  // UPDATE — move to orbit position only when NOT being dragged
+  planetsLayer.selectAll('circle.planet-bub')
+    .each(function(d) {
+      if (!d._dragging) {
+        d3.select(this)
+          .attr('cx', anchor.x + Math.cos(d.angle) * d.orbitR)
+          .attr('cy', anchor.y + Math.sin(d.angle) * d.orbitR)
+          .attr('r',  d.r)
+          .attr('fill', d.color);
+      }
+    });
+
+  // EXIT
+  sel.exit()
+    .transition().duration(300)
+    .attr('r', 0).remove();
+}
+
+// ═══════════════════════════════════════════════════
+//  ANIMATION LOOP
+// ═══════════════════════════════════════════════════
+function startAnim() {
+  if (rafId !== null) return;
+  lastTime = null;
+  function tick(now) {
+    const dt = lastTime === null ? 0 : now - lastTime;
+    lastTime = now;
+    // Advance each planet's angle (Kepler speed: ∝ 1/sqrt(orbitR))
+    planets.forEach(p => { p.angle += p.speed * dt; });
+    renderPlanets();
+    rafId = requestAnimationFrame(tick);
+  }
+  rafId = requestAnimationFrame(tick);
+}
+
+function stopAnim() {
+  if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+}
+
+// ═══════════════════════════════════════════════════
+//  GRAVITATIONAL COLLAPSE (rotate gesture → merge)
+// ═══════════════════════════════════════════════════
+function gravitationalCollapse() {
+  stopAnim();
+
+  // Animate planets spiraling inward toward sun, then disappear
+  planetsLayer.selectAll('circle.planet-bub')
+    .transition()
+    .duration(700)
+    .ease(d3.easeCubicIn)
+    .attr('cx', anchor.x)
+    .attr('cy', anchor.y)
+    .attr('r', 0)
+    .on('end', function() { d3.select(this).remove(); });
+
+  ringsLayer.selectAll('circle.orbit-ring')
+    .transition().duration(500)
+    .attr('opacity', 0).remove();
+
+  setTimeout(() => {
+    planets = [];
+    sunR    = SUN_R;
+    renderSun();
+    updateHUD();
+  }, 750);
+}
+
+// ═══════════════════════════════════════════════════
+//  SYSTEM DISPERSE (drag too far → planets fly outward)
+// ═══════════════════════════════════════════════════
+function systemDisperse() {
+  stopAnim();
+
+  // Each planet flies outward at random angle
+  planetsLayer.selectAll('circle.planet-bub')
+    .each(function(d) {
+      const el  = d3.select(this);
+      const ang = Math.random() * 2 * Math.PI;
+      const far = Math.max(W, H) * 1.2;
+      el.transition().duration(900).ease(d3.easeCubicIn)
+        .attr('cx', anchor.x + Math.cos(ang) * far)
+        .attr('cy', anchor.y + Math.sin(ang) * far)
+        .attr('r', 0)
+        .remove();
+    });
+
+  ringsLayer.selectAll('circle.orbit-ring')
+    .transition().duration(500).attr('opacity', 0).remove();
+
+  // Sun pulses and fades then resets
+  sunCircle.transition().duration(400).attr('r', sunR * 1.5)
+    .transition().duration(600).attr('r', 0)
+    .on('end', () => setTimeout(initSystem, 200));
+
+  sunGlowOuter.transition().duration(700).attr('opacity', 0);
+  sunGlowInner.transition().duration(700).attr('opacity', 0);
+}
+
+// ═══════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════
+function initSystem() {
+  planets  = [];
+  sunR     = SUN_R;
+  anchor   = { x: W / 2, y: H / 2 };
+  stopAnim();
+
+  planetsLayer.selectAll('circle.planet-bub').remove();
+  ringsLayer.selectAll('circle.orbit-ring').remove();
+
+  sunGlowOuter.attr('opacity', 1);
+  sunGlowInner.attr('opacity', 1);
+  renderSun(true);
+  updateHUD();
+} 
+
+
+initSystem();
+
+</script>
+</body>
+</html>
